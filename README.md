@@ -6,3 +6,6 @@ base of headless hamradio cw beacon decoder on IQ signal up to 384khz
 The red bars are the peaks that exceed the threshold.
 The blue sticks are the possible threads.
 The greens are active threads during decoding.
+
+This code is suitable for anyone would continu the project.
+Decoding thread is befor an alpha test :)
