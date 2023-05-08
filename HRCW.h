@@ -31,6 +31,9 @@
 
 #define max_index_peak 500
 
+#define start_band 1850
+#define stop_band 1900
+
 #define max_index_thread 1
 
 /* The fourier transformation produced by libfftw3 is not normalized.
