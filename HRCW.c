@@ -45,9 +45,10 @@ double filterth[500][2]={0};
 int *peak = NULL;
 
 int *aleath = {0};
-int threshold_fact = 2;
+int threshold_fact = 4;
 
-pthread_t decoders[max_index_thread];
+// pthread_t decoders[max_index_thread];
+pthread_t *decoders;
 pthread_mutex_t mutex_global_thplan;
 struct thplanst {
         int index;
@@ -57,7 +58,7 @@ struct thplanst {
         double currentTH[2048];
         bool currentdTH[2048];
 };
-thplanst thplan[max_index_thread];
+thplanst *thplan;
 // int thplan[max_index_thread][3] = {false,0,false};
 
 struct thargs {
@@ -480,16 +481,16 @@ void morse_to_text(char* morse, char* buffer) {
         char* token = strtok(morse, " "); // séparation des caractères en morse
         while (token != NULL) {
                 if (strcmp(token, "~") == 0) { // ajout d'un espace si le caractère est ~
-                if (strlen(buffer) + 1 < 2048) { // vérification de la taille du buffer
-                    strcat(buffer, " ");
-                }
+                        if (strlen(buffer) + 1 < 2048) { // vérification de la taille du buffer
+                                strcat(buffer, " ");
+                        }
                 } else {
                         int i;
                         for (i = 0; i < 47; i++) {
                                 if (strcmp(token, morse_table[i]) == 0) { // comparaison avec la table de correspondance morse/ASCII
-                                  if (strlen(buffer) + 1 < 2048) { // vérification de la taille du buffer
-                                        strcat(buffer, ascii_table[i]); // ajout du caractère ASCII correspondant au buffer
-                                      }
+                                        if (strlen(buffer) + 1 < 2048) { // vérification de la taille du buffer
+                                                strcat(buffer, ascii_table[i]); // ajout du caractère ASCII correspondant au buffer
+                                        }
                                         break;
                                 }
                         }
@@ -682,7 +683,7 @@ void* decoderthfc(void *input)
 
                 char buffer[2048];
                 if(zz % 1024) {detect_morse_code(thplan[index].currentdTH,buffer);}
-                printf("%s\n",buffer);
+                printf("%i) %s\n",index,buffer);
                 fflush(stdout);
                 zz++;
 
@@ -829,7 +830,7 @@ void updateDisplay(void)
                 int lastpe = 0;
                 for (int i = start_band; i < stop_band; ++i)
                 {
-                        if (fftw.currentLine[i] > threshold *4)
+                        if (fftw.currentLine[i] > threshold)
                         {
                                 while (fftw.currentLine[i+1] > fftw.currentLine[i]) {i++;} //On cherche le point haut du pic
                                 peakindex[lastpe] = i;
@@ -944,6 +945,13 @@ void updateDisplay(void)
                 // glColor3fv(curcol);
 
                 if(interaction.showthread>=0) {
+                        char txt[3];
+                        sprintf(txt, "%d", interaction.showthread);
+                        glRasterPos2f(0, 0);
+                        int len = (int)strlen(txt);
+                        for (int i = 0; i < len; i++) {
+                                glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, txt[i]);
+                        }
 
                         glBegin(GL_LINE_STRIP);
                         glColor3ub(0, 255, 0);//green
@@ -1192,10 +1200,13 @@ void updateDisplay(void)
         glVertex2f( 1, lineYStart);
         glVertex2f( 1, 1);
 
+        glVertex2f((((double)start_band/SOUND_SAMPLES_PER_TURN)*2)-1, -1);
+        glVertex2f((((double)start_band/SOUND_SAMPLES_PER_TURN)*2)-1, 1);
+
+        glVertex2f((((double)stop_band/SOUND_SAMPLES_PER_TURN)*2)-1, -1);
+        glVertex2f((((double)stop_band/SOUND_SAMPLES_PER_TURN)*2)-1, 1);
+
         glEnd();
-
-
-
 
 
         glutSwapBuffers();
@@ -1492,11 +1503,11 @@ void textureDeinit(void)
 int main(int argc, char *argv[])
 {
         int c;
-        while ((c = getopt (argc, argv, "hd:r:t:")) != -1)
+        while ((c = getopt (argc, argv, "hd:r:s:e:n:t:")) != -1)
                 switch (c)
                 {
                 case 'h':
-                        printf ("HRCW -r 192000 -d plughw:CARD=PCH,DEV=0\n");
+                        printf ("HRCW -d plughw:CARD=PCH,DEV=0 -r 192000 -n 10 -s 170000 -e 180000\n");
                         exit(0);
                         break;
                 case 'd':
@@ -1505,6 +1516,15 @@ int main(int argc, char *argv[])
                         return 1;
                 case 'r':
                         SOUND_RATE = atoi(optarg);
+                        break;
+                case 's':
+                        start_band = atoi(optarg);
+                        break;
+                case 'e':
+                        stop_band = atoi(optarg);
+                        break;
+                case 'n':
+                        max_index_thread = atoi(optarg);
                         break;
                 case 't':
                         threshold_fact = atoi(optarg);
@@ -1516,6 +1536,17 @@ int main(int argc, char *argv[])
 
         SOUND_SAMPLES_PER_TURN = (SOUND_RATE * 512 / 48000);
 
+        if((start_band<0) | (start_band > stop_band) | (stop_band>SOUND_SAMPLES_PER_TURN))
+        {
+                printf ("Please correct start or stop band in hz\n");
+        }
+
+        if(!start_band) start_band=0;
+        if(!stop_band) stop_band = SOUND_SAMPLES_PER_TURN;
+
+        start_band = (start_band*SOUND_SAMPLES_PER_TURN)/SOUND_RATE;
+        stop_band = (stop_band*SOUND_SAMPLES_PER_TURN)/SOUND_RATE;
+
         printf ("SOUND_DEVICE = %s\nSOUND_RATE = %d\nSOUND_SAMPLES_PER_TURN = %d\n",SOUND_DEVICE, SOUND_RATE, SOUND_SAMPLES_PER_TURN);
 
         HANNINGWINDOWS = hanningInit(SOUND_SAMPLES_PER_TURN);
@@ -1524,6 +1555,9 @@ int main(int argc, char *argv[])
         aleath = randomth(SOUND_SAMPLES_PER_TURN);
 
         displayInit(argc, argv);
+        thplan = (thplanst*)malloc(sizeof(thplanst)*max_index_thread);
+        decoders = (pthread_t*)malloc(sizeof(pthread_t)*max_index_thread);
+
         threadinit();
         audioInit();
         fftwInit();

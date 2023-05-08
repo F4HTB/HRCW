@@ -31,10 +31,10 @@
 
 #define max_index_peak 500
 
-#define start_band 1850
-#define stop_band 1900
+int start_band = 0;
+int stop_band  = 0;
 
-#define max_index_thread 1
+int max_index_thread = 1;
 
 /* The fourier transformation produced by libfftw3 is not normalized.
  * Hence, you need to provide a scaling factor. This is a sane default.
