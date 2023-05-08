@@ -1541,8 +1541,8 @@ int main(int argc, char *argv[])
                 printf ("Please correct start or stop band in hz\n");
         }
 
-        if(!start_band) start_band=0;
-        if(!stop_band) stop_band = SOUND_SAMPLES_PER_TURN;
+        if(start_band==0) start_band=0;
+        if(stop_band==0) stop_band = SOUND_RATE;
 
         start_band = (start_band*SOUND_SAMPLES_PER_TURN)/SOUND_RATE;
         stop_band = (stop_band*SOUND_SAMPLES_PER_TURN)/SOUND_RATE;
