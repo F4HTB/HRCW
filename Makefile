@@ -2,7 +2,7 @@ CC = g++
 
 EXECUTABLE = HRCW
 
-CFLAGS += -Wall -Wextra
+CFLAGS += -Wall -Wextra -march=native
 LDLIBS += -lm -lglut -lGL -lasound -lfftw3 -lfftw3_threads -pthread
 
 INSTALL=install

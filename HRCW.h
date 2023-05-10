@@ -1,6 +1,24 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+/**variables**/
+
+//Limit to start and stop to scan cw
+int start_band = 0;
+int stop_band  = 0;
+
+//Numer of thread traitement of cw
+int max_index_thread = 1;
+
+// Définir la valeur maximale représentable pour un échantillon signé de 16 bits
+#define MAX_SAMPLE_VALUE 31103
+
+// Définir le pourcentage maximum de saturation autorisé
+#define MAX_SATURATION_PERCENTAGE 0.01
+
+// Définir la valeur RMS minimale acceptable
+#define MIN_RMS_THRESHOLD 0.01
+
 /* Default recording device, sample rate. Sound is always recorded in
  * mono. The device can be overriden at runtime using the environment
  * variable SOUND_DEVICE_ENV. */
@@ -30,11 +48,6 @@
 #define FFTW_HISTORY_SIZE 128
 
 #define max_index_peak 500
-
-int start_band = 0;
-int stop_band  = 0;
-
-int max_index_thread = 1;
 
 /* The fourier transformation produced by libfftw3 is not normalized.
  * Hence, you need to provide a scaling factor. This is a sane default.

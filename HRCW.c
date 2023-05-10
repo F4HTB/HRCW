@@ -36,6 +36,8 @@
 
 #include <pthread.h>
 
+#include <regex.h>
+
 
 int SOUND_RATE = 48000;
 char *SOUND_DEVICE = "default";
@@ -57,6 +59,8 @@ struct thplanst {
         double currentcolG[2048];
         double currentTH[2048];
         bool currentdTH[2048];
+        char text[2048];
+        int wpm;
 };
 thplanst *thplan;
 // int thplan[max_index_thread][3] = {false,0,false};
@@ -178,18 +182,14 @@ char *getenvDefault(char *name, char *def)
 
 void threadinit(){
         for (int z=0; z<max_index_thread; z++) {
-
                 thplan[z].index=0;
                 thplan[z].buffer_ready=false;
                 thplan[z].is_running=false;
                 memset(thplan[z].currentcolG, 0, sizeof(thplan[z].currentcolG));
                 memset(thplan[z].currentTH, 0, sizeof(thplan[z].currentcolG));
                 memset(thplan[z].currentdTH, false, sizeof(thplan[z].currentdTH));
-
-                // thplan[z][0]=false; //is_running
-                // thplan[z][1]=0; //index
-                // thplan[z][2]=false; //buffer_ready
-
+                thplan[z].text[0]='\0';
+                thplan[z].wpm=0;
         }
 }
 
@@ -340,7 +340,47 @@ int audioRead(void)
         return rc;
 }
 
-/*hanning function*/
+//compute for fft ans audio Saturation detection.
+//préparer le buffer pour la fft
+// Calculer la valeur RMS du signal dans le buffer et vérifier si le signal est saturé ou trop bas
+int check_signal_and_compute_for_fft() {
+
+        double sum = 0.0;
+        int num_saturated_samples = 0;
+
+        for (int i = 0; i < (int)sound.bufferSizeFrames; i++)
+        {
+                short int valq = getFrame(sound.buffer, i, CLEFT);
+                short int vali = getFrame(sound.buffer, i, CRIGHT);
+                fftw.in[i][_Q_]=((2 * (double)vali / (256 * 256)) * (HANNINGWINDOWS[i]));
+                fftw.in[i][_I_]=((2 * (double)valq / (256 * 256)) * (HANNINGWINDOWS[i]));
+
+                if (valq >= MAX_SAMPLE_VALUE || valq <= -MAX_SAMPLE_VALUE || vali >= MAX_SAMPLE_VALUE || vali <= -MAX_SAMPLE_VALUE) {
+                        num_saturated_samples++;
+                }
+                // Ajouter le carré de l'échantillon à la somme
+                sum += fftw.in[i][_Q_] * fftw.in[i][_Q_] + fftw.in[i][_I_] * fftw.in[i][_I_];
+        }
+
+
+        // Calculer la moyenne des carrés
+        double mean = sum / (sound.bufferSizeFrames);
+        // Calculer la racine carrée de la moyenne des carrés
+        double rms = sqrt(mean);
+        // Calculer le pourcentage de saturation
+        double saturation_percentage = (double)num_saturated_samples / (sound.bufferSizeFrames);
+        // Vérifier si le pourcentage de saturation dépasse le seuil
+        if (saturation_percentage > MAX_SATURATION_PERCENTAGE) {
+                return 1; // Signal saturé
+        }
+        // Vérifier si la valeur RMS est trop basse
+        if (rms < MIN_RMS_THRESHOLD) {
+                return 2; // Signal trop bas
+        }
+        return 0; // Signal correct
+}
+
+
 /*hanning function*/
 float *hanningInit(int N, short itype = 0)
 {
@@ -471,8 +511,8 @@ void reverse(char* str) {
 }
 
 void morse_to_text(char* morse, char* buffer) {
-        const char* morse_table[] = {".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", ".---", "-.-", ".-..", "--", "-.", "---", ".--.", "--.-", ".-.", "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--..", ".----", "..---", "...--", "....-", ".....", "-....", "--...", "---..", "----.", "-----", "--..--", ".-.-.-", "..--..", "-.-.--", "-....-", ".-.-.", ".----.", "-..-.", "-.--.", "-.--.-", "/"}; // table de correspondance morse/ASCII
-        const char* ascii_table[] = {"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", ",", ".", "?", "!", "-", "/", "(", ")", "&", ":", ";", "=", "+", "_", "$", "@", " "}; // table de correspondance ASCII/morse
+        const char* morse_table[] = {".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", ".---", "-.-", ".-..", "--", "-.", "---", ".--.", "--.-", ".-.", "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--..", ".----", "..---", "...--", "....-", ".....", "-....", "--...", "---..", "----.", "-----", "--..--", ".-.-.-", "..--..", "-.-.--", "-....-", ".-.-.", ".----.", "-..-.", "-.--.", "-.--.-", "-...-", "/"}; // table de correspondance morse/ASCII
+        const char* ascii_table[] = {"A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", ",", ".", "?", "!", "-", "/", "(", ")", "&", ":", ";", "=", "+", "_", "$", "@", "=", " "}; // table de correspondance ASCII/morse
 
         // initialisation du buffer
         buffer[0] = '\0';
@@ -486,21 +526,24 @@ void morse_to_text(char* morse, char* buffer) {
                         }
                 } else {
                         int i;
+                        bool find = false;
                         for (i = 0; i < 47; i++) {
                                 if (strcmp(token, morse_table[i]) == 0) { // comparaison avec la table de correspondance morse/ASCII
                                         if (strlen(buffer) + 1 < 2048) { // vérification de la taille du buffer
                                                 strcat(buffer, ascii_table[i]); // ajout du caractère ASCII correspondant au buffer
                                         }
+                                        find = true;
                                         break;
                                 }
                         }
+                        if(!find) printf("%s\n",token);
                 }
                 token = strtok(NULL, " "); // passage au caractère suivant
         }
 }
 
 
-void detect_morse_code(bool signals[], char* outbuffer) {
+void detect_morse_code(int index) {
 
         int distrizero[fftw.outlen];
         int distrione[fftw.outlen];
@@ -509,24 +552,25 @@ void detect_morse_code(bool signals[], char* outbuffer) {
         int k=0;
         int l=0;
         bool lastsig = 0;
+
         for (int i = 0; i < fftw.outlen; i++) {
-                if (signals[i] == lastsig) {
+                if (thplan[index].currentdTH[i] == lastsig) {
                         j++;
                 }else{
-                        lastsig=signals[i];
                         if(lastsig==1) {
                                 distrione[j]++;
                         }
                         if(lastsig==0) {
                                 distrizero[j]++;
                         }
+                        lastsig=thplan[index].currentdTH[i];
                         j=0;
                 }
         }
 
         int val = 0;
         int maxval = 0;
-        for (int i = 1; i < fftw.outlen; i++) {
+        for (int i = 3; i < fftw.outlen; i++) {
                 if(distrione[i] > maxval) {maxval=distrione[i]; val=i;}
         }
 
@@ -537,8 +581,6 @@ void detect_morse_code(bool signals[], char* outbuffer) {
                 if(distrione[i] > maxval2) {maxval2=distrione[i]; val2=i;}
         }
 
-        fflush(stdout);
-
         int val3 = val/2;
         int maxval3 = 0;
         for (int i = val3; i > 0; i--) {
@@ -548,20 +590,23 @@ void detect_morse_code(bool signals[], char* outbuffer) {
         int thresoldcw = 0;
 
         if(maxval2 > maxval3) {
-                thresoldcw =  val+val2/2;
+                // thresoldcw =  (val+val2)/2;
+                thresoldcw =  val2/2;
+                thplan[index].wpm = 60000/(val*10.66*50);
                 // printf("dit %i dash %i th %i\n",val,val2,thresoldcw);
         }
         else{
-                thresoldcw =  val+val3/2;
+                // thresoldcw =  (val+val3)/2;
+                thresoldcw =  val/2;
+                thplan[index].wpm = 60000/(val3*10.66*50);
                 // printf("dit %i dash %i th %i\n",val3,val,thresoldcw);
         }
-
 
         char cw[2048] = "";
         cw[0] = '\0';
         int cwindex = 0;
         for (int i = 0; i < fftw.outlen; i++) {
-                if ((signals[i] == lastsig) | (j<3)) {
+                if ((thplan[index].currentdTH[i] == lastsig) | (j<3)) {
                         // if(lastsig==1) {printf("°");}
                         // if(lastsig==0) {printf("_");}
                         j++;
@@ -581,7 +626,7 @@ void detect_morse_code(bool signals[], char* outbuffer) {
                         }
                         else if(lastsig==0) {
                                 if(j>thresoldcw*2) {
-                                        // printf(" ");
+                                        // printf(" ~ ");
                                         cw[cwindex]=(char)32;
                                         cwindex++;
                                         cw[cwindex]=(char)126;
@@ -595,13 +640,13 @@ void detect_morse_code(bool signals[], char* outbuffer) {
                                 }
                         }
 
-                        lastsig=signals[i];
+                        lastsig=thplan[index].currentdTH[i];
                         j=0;
                 }
         }
         cw[cwindex]='\0';
         reverse(cw);
-        morse_to_text(cw,outbuffer);
+        morse_to_text(cw,thplan[index].text);
 }
 
 double compute_noise_level(double* measurements, int num_measurements) {
@@ -639,6 +684,9 @@ double compute_noise_level(double* measurements, int num_measurements) {
         return noise_level;
 }
 
+
+
+
 void* decoderthfc(void *input)
 {
 
@@ -662,7 +710,6 @@ void* decoderthfc(void *input)
         {
                 while(!thplan[index].buffer_ready) {
                         usleep(1000);
-                        maxwaiketime--;
                 }
 
                 memmove(&currentcol[1], &currentcol[0], sizeofcurrentcol);
@@ -681,14 +728,25 @@ void* decoderthfc(void *input)
                 if(currentcol[0]>threasold) {thplan[index].currentdTH[0]=1;}
                 else{thplan[index].currentdTH[0]=0;}
 
-                char buffer[2048];
-                if(zz % 1024) {detect_morse_code(thplan[index].currentdTH,buffer);}
-                printf("%i) %s\n",index,buffer);
-                fflush(stdout);
+                if(zz % 1024) {detect_morse_code(index);}
+
+                
+
+                // printf("%s\n",thplan[index].text);
+                // fflush(stdout);
                 zz++;
 
                 usleep(1000);
-                maxwaiketime--;
+
+                int count = 0;
+
+                for (int i = 0; i < 2048; i++) {
+                        if (thplan[index].text[i] == 'E' || thplan[index].text[i] == 'T') {
+                                count++;
+                        }
+                }
+
+                if(count++>128) maxwaiketime--;
                 ////
                 thplan[index].buffer_ready=false;
         }
@@ -755,14 +813,25 @@ void updateDisplay(void)
                 memmove(sound.bufferLast, sound.buffer, sound.bufferSizeFrames * 4);
                 /*on copy la ligne pour le traitement*/
 
-                for (int i = 0; i < (int)sound.bufferSizeFrames; i++)
+                // for (int i = 0; i < (int)sound.bufferSizeFrames; i++)
+                // {
+                //         short int valq = getFrame(sound.buffer, i, CLEFT);
+                //         short int vali = getFrame(sound.buffer, i, CRIGHT);
+                //         fftw.in[i][_Q_]=((2 * (double)vali / (256 * 256)) * (HANNINGWINDOWS[i]));
+                //         fftw.in[i][_I_]=((2 * (double)valq / (256 * 256)) * (HANNINGWINDOWS[i]));
+                // }
+                int tt = check_signal_and_compute_for_fft();
+                switch ( tt )
                 {
-                        short int valq = getFrame(sound.buffer, i, CLEFT);
-                        short int vali = getFrame(sound.buffer, i, CRIGHT);
-                        fftw.in[i][_Q_]=((2 * (double)vali / (256 * 256)) * (HANNINGWINDOWS[i]));
-                        fftw.in[i][_I_]=((2 * (double)valq / (256 * 256)) * (HANNINGWINDOWS[i]));
+                case 1:
+                        printf("Signal saturated\n");
+                        break;
+                case 2:
+                        printf("Signal to low\n");
+                        break;
+                default:
+                        break;
                 }
-
                 fftw_execute(fftw.plan);
 
                 for (int z=0; z<max_index_thread; z++) {
@@ -820,8 +889,7 @@ void updateDisplay(void)
                 /*On calcule la puissance moyenne et le squelch*/
                 moyenne /= fftw.outlen;
 
-                double threshold = 0;
-                threshold = (double)moyenne * threshold_fact;
+                double threshold = (double)moyenne * threshold_fact;
 
 
 
@@ -945,9 +1013,10 @@ void updateDisplay(void)
                 // glColor3fv(curcol);
 
                 if(interaction.showthread>=0) {
-                        char txt[3];
-                        sprintf(txt, "%d", interaction.showthread);
-                        glRasterPos2f(0, 0);
+                        char txt[2048];
+                        // sprintf(txt,2048, "%d)%s", interaction.showthread,thplan[interaction.showthread].text);
+                        snprintf(txt, 2048, "%i %i (%.*s)", interaction.showthread, thplan[interaction.showthread].wpm, (int)strlen(thplan[interaction.showthread].text) - 2, &thplan[interaction.showthread].text[1]);
+                        glRasterPos2f(-1, 0.9);
                         int len = (int)strlen(txt);
                         for (int i = 0; i < len; i++) {
                                 glutBitmapCharacter(GLUT_BITMAP_HELVETICA_12, txt[i]);
