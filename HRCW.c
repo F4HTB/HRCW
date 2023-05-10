@@ -588,18 +588,21 @@ void detect_morse_code(int index) {
         }
 
         int thresoldcw = 0;
+        int thresoldspace = 0;
 
         if(maxval2 > maxval3) {
                 // thresoldcw =  (val+val2)/2;
                 thresoldcw =  val2/2;
+                thresoldspace = (3*val2 + val)/2;
                 thplan[index].wpm = 60000/(val*10.66*50);
-                // printf("dit %i dash %i th %i\n",val,val2,thresoldcw);
+                printf("dit %i dash %i th %i\n",val,val2,thresoldcw);
         }
         else{
                 // thresoldcw =  (val+val3)/2;
                 thresoldcw =  val/2;
+                thresoldspace = (3*val + val3)/2;
                 thplan[index].wpm = 60000/(val3*10.66*50);
-                // printf("dit %i dash %i th %i\n",val3,val,thresoldcw);
+                printf("dit %i dash %i th %i\n",val3,val,thresoldcw);
         }
 
         char cw[2048] = "";
@@ -625,7 +628,7 @@ void detect_morse_code(int index) {
 
                         }
                         else if(lastsig==0) {
-                                if(j>thresoldcw*2) {
+                                if(j>thresoldspace) {
                                         // printf(" ~ ");
                                         cw[cwindex]=(char)32;
                                         cwindex++;
@@ -730,7 +733,7 @@ void* decoderthfc(void *input)
 
                 if(zz % 1024) {detect_morse_code(index);}
 
-                
+
 
                 // printf("%s\n",thplan[index].text);
                 // fflush(stdout);
